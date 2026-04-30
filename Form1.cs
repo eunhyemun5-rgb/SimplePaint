@@ -1,92 +1,108 @@
+
 namespace SimplePaint
 {
-
     using System;
     using System.Drawing;
     using System.Drawing.Drawing2D;
     using System.Drawing.Imaging;
     using System.Windows.Forms;
-    using static System.Windows.Forms.VisualStyles.VisualStyleElement;
-
-
     public partial class Form1 : Form
     {
-        enum ToolType { Line, Rectangle, Circle }  // 사용할도형타입
-        private Bitmap canvasBitmap;          // 실제그림이저장되는비트맵
-        private Graphics canvasGraphics;      // 비트맵위에그리기위한객체
-        private bool isDrawing = false;       // 현재드래그중인지여부
-        private Point startPoint;             // 드래그시작점
-        private Point endPoint;               // 드래그끝점
-        private ToolType currentTool = ToolType.Line;  // 현재선택된도형
-        private Color currentColor = Color.Black;      // 현재색상
+        enum ToolType { Line, Rectangle, Circle }  // 사용할 도형 타입
+        private Bitmap canvasBitmap;               // 실제 그림이 저장되는 비트맵
+        private Graphics canvasGraphics;           // 비트맵 위에 그리기 위한 객체
+        private bool isDrawing = false;            // 현재 드래그 중인지 여부
+        private Point startPoint;                  // 드래그 시작점
+        private Point endPoint;                    // 드래그 끝점
+        private ToolType currentTool = ToolType.Line;  // 현재 선택된 도형
+        private Color currentColor = Color.Black;      // 현재 색상
         private int currentLineWidth = 2;              // 현재 선 두께
         public Form1()
         {
             InitializeComponent();
+            // [과제 4] 스크롤바 기능을 위해 PictureBox의 속성 설정
+            // picCanvas가 들어있는 Panel 컨테이너의 AutoScroll을 True로 설정해야 합니다.
+            picCanvas.SizeMode = PictureBoxSizeMode.AutoSize;
 
-            // 캔버스초기화
-            canvasBitmap = new Bitmap(picCanvas.Width, picCanvas.Height);
-            canvasGraphics = Graphics.FromImage(canvasBitmap);
-            canvasGraphics.Clear(Color.White);   // 캔버스를흰색으로초기화
-
-            picCanvas.Image = canvasBitmap;   // 그린그림을화면(PictureBox)에 표시
-
-            // 마우스이벤트연결
+            // 초기 캔버스 설정
+            InitializeCanvas(picCanvas.Width, picCanvas.Height);
+            // 마우스 이벤트 연결
             picCanvas.MouseDown += PicCanvas_MouseDown;
             picCanvas.MouseMove += PicCanvas_MouseMove;
             picCanvas.MouseUp += PicCanvas_MouseUp;
-
-            // picCanvas가다시그려질 때PicCanvas_Paint함수를실행하도록연결
             picCanvas.Paint += PicCanvas_Paint;
-
-            // 도형선택버튼이벤트연결
-            btnLine.Click += btnLine_Click;
-            btnRectangle.Click += btnRectangle_Click;
-            btnCircle.Click += btnCircle_Click;
-
-            // 색상콤보박스이벤트연결
+            // 도형 선택 버튼 이벤트 연결
+            btnLine.Click += (s, e) => currentTool = ToolType.Line;
+            btnRectangle.Click += (s, e) => currentTool = ToolType.Rectangle;
+            btnCircle.Click += (s, e) => currentTool = ToolType.Circle;
+            // 색상 및 선 두께 설정
             cmbColor.SelectedIndexChanged += cmbColor_SelectedIndexChanged;
-            cmbColor.SelectedIndex = 0;  // 기본값: Black
-
-            // 선두께트랙바이벤트연결
-            trbLineWidth.Minimum = 1;    // 최소값
-            trbLineWidth.Maximum = 10;   // 최대값
-            trbLineWidth.Value = 2;
-            trbLineWidth.ValueChanged += trbLineWidth_ValueChanged;
-
+            cmbColor.SelectedIndex = 0;
+            trbLineWidth.ValueChanged += (s, e) => currentLineWidth = trbLineWidth.Value;
+            // [과제 3 & 4] 버튼 이벤트 연결
+            if (btnSaveFile != null) btnSaveFile.Click += btnSave_Click;
+            if (btnOpenFile != null) btnOpenFile.Click += btnOpen_Click; // 열기 버튼 연결
         }
-
+        // 캔버스 초기화 및 메모리 할당 공통 함수
+        private void InitializeCanvas(int width, int height)
+        {
+            if (canvasBitmap != null) canvasBitmap.Dispose();
+            if (canvasGraphics != null) canvasGraphics.Dispose();
+            canvasBitmap = new Bitmap(width, height);
+            canvasGraphics = Graphics.FromImage(canvasBitmap);
+            canvasGraphics.SmoothingMode = SmoothingMode.AntiAlias;
+            canvasGraphics.Clear(Color.White);
+            picCanvas.Image = canvasBitmap;
+        }
+        // --- [과제 4] 외부 이미지 파일 열기 기능 구현 ---
+        private void btnOpen_Click(object sender, EventArgs e)
+        {
+            using (OpenFileDialog openFileDialog = new OpenFileDialog())
+            {
+                openFileDialog.Filter = "Image Files|*.png;*.jpg;*.jpeg;*.bmp";
+                openFileDialog.Title = "외부 이미지 불러오기";
+                if (openFileDialog.ShowDialog() == DialogResult.OK)
+                {
+                    // 1. 외부 이미지 읽어오기
+                    using (Image loadedImage = Image.FromFile(openFileDialog.FileName))
+                    {
+                        // 2. 이미지 크기에 맞춰 캔버스 크기 조정
+                        // (PictureBox.SizeMode이 AutoSize이므로 이미지가 크면 스크롤바가 생깁니다)
+                        InitializeCanvas(loadedImage.Width, loadedImage.Height);
+                        // 3. 읽어온 이미지를 캔버스 비트맵 위에 그리기 (캔버스로 사용)
+                        canvasGraphics.DrawImage(loadedImage, 0, 0, loadedImage.Width, loadedImage.Height);
+                    }
+                    picCanvas.Invalidate();
+                    MessageBox.Show("이미지를 캔버스로 불러왔습니다. 그 위에 그림을 그리세요!");
+                }
+            }
+        }
+        // --- 마우스 드래그 및 그리기 로직 ---
         private void PicCanvas_MouseDown(object sender, MouseEventArgs e)
         {
-            isDrawing = true;             // 드래그시작
-            startPoint = e.Location;      // 시작점저장
+            isDrawing = true;
+            startPoint = e.Location;
         }
         private void PicCanvas_MouseMove(object sender, MouseEventArgs e)
         {
-            if (!isDrawing) return;       // 그림그리기와상관없는마우스움직임은무시
-            endPoint = e.Location;        // 현재위치갱신
-
-            // picCanvas를다시그려라(Paint 이벤트를발생시킨다)
-            picCanvas.Invalidate();       // 화면다시그리기(미리보기)
+            if (!isDrawing) return;
+            endPoint = e.Location;
+            picCanvas.Invalidate();
         }
-
         private void PicCanvas_MouseUp(object sender, MouseEventArgs e)
         {
-            if (!isDrawing) return;     // 그림그리기와상관없는마우스움직임은무시
-            isDrawing = false;          // 드래그종료
+            if (!isDrawing) return;
+            isDrawing = false;
             endPoint = e.Location;
-
-            // 실제비트맵에도형그리기(확정)
             using (Pen pen = new Pen(currentColor, currentLineWidth))
             {
                 DrawShape(canvasGraphics, pen, startPoint, endPoint);
             }
-            picCanvas.Invalidate();     // 다시그려서결과반영, Paint 이벤트발생
+            picCanvas.Invalidate();
         }
         private void PicCanvas_Paint(object sender, PaintEventArgs e)
         {
             if (!isDrawing) return;
-            // 점선펜(미리보기용)
             using (Pen previewPen = new Pen(currentColor, currentLineWidth))
             {
                 previewPen.DashStyle = DashStyle.Dash;
@@ -98,63 +114,44 @@ namespace SimplePaint
             Rectangle rect = GetRectangle(p1, p2);
             switch (currentTool)
             {
-                case ToolType.Line:
-                    g.DrawLine(pen, p1, p2);
-                    break;
-                case ToolType.Rectangle:
-                    g.DrawRectangle(pen, rect);
-                    break;
-                case ToolType.Circle:
-                    g.DrawEllipse(pen, rect);
-                    break;
+                case ToolType.Line: g.DrawLine(pen, p1, p2); break;
+                case ToolType.Rectangle: g.DrawRectangle(pen, rect); break;
+                case ToolType.Circle: g.DrawEllipse(pen, rect); break;
             }
         }
-        private void btnLine_Click(object sender, EventArgs e)
+        // --- 파일 저장 기능 ---
+        private void btnSave_Click(object sender, EventArgs e)
         {
-            currentTool = ToolType.Line;
+            using (SaveFileDialog saveFileDialog = new SaveFileDialog())
+            {
+                saveFileDialog.Filter = "PNG Image|*.png|JPeg Image|*.jpg|Bitmap Image|*.bmp";
+                if (saveFileDialog.ShowDialog() == DialogResult.OK)
+                {
+                    ImageFormat format = ImageFormat.Png;
+                    string ext = System.IO.Path.GetExtension(saveFileDialog.FileName).ToLower();
+                    if (ext == ".jpg") format = ImageFormat.Jpeg;
+                    else if (ext == ".bmp") format = ImageFormat.Bmp;
+                    canvasBitmap.Save(saveFileDialog.FileName, format);
+                    MessageBox.Show("그림이 파일로 저장되었습니다.");
+                }
+            }
         }
-        private void btnRectangle_Click(object sender, EventArgs e)
-        {
-            currentTool = ToolType.Rectangle;
-        }
-        private void btnCircle_Click(object sender, EventArgs e)
-        {
-            currentTool = ToolType.Circle;
-        }
-
+        // --- 유틸리티 함수 ---
         private void cmbColor_SelectedIndexChanged(object sender, EventArgs e)
         {
             switch (cmbColor.SelectedIndex)
             {
-                case 0: // Black 검정
-                    currentColor = Color.Black;
-                    break;
-                case 1: // Red 빨강
-                    currentColor = Color.Red;
-                    break;
-                case 2: // Blue 파랑
-                    currentColor = Color.Blue;
-                    break;
-                case 3: // Green 녹색
-                    currentColor = Color.Green;
-                    break;
-                default:
-                    currentColor = Color.Black;
-                    break;
+                case 0: currentColor = Color.Black; break;
+                case 1: currentColor = Color.Red; break;
+                case 2: currentColor = Color.Blue; break;
+                case 3: currentColor = Color.Green; break;
             }
         }
         private Rectangle GetRectangle(Point p1, Point p2)
         {
             return new Rectangle(
-                Math.Min(p1.X, p2.X),
-                Math.Min(p1.Y, p2.Y),
-                Math.Abs(p1.X - p2.X),
-                Math.Abs(p1.Y - p2.Y));
-        }
-
-        private void trbLineWidth_ValueChanged(object sender, EventArgs e)
-        {
-            currentLineWidth = trbLineWidth.Value;
+                Math.Min(p1.X, p2.X), Math.Min(p1.Y, p2.Y),
+                Math.Abs(p1.X - p2.X), Math.Abs(p1.Y - p2.Y));
         }
     }
 }
